@@ -16,6 +16,7 @@ import {
 	prettyPrintLogs,
 	translateCLICommandToFilterMessage,
 } from "./createTail";
+import { runWobsTail } from "./wobs";
 import type { TailCLIFilters } from "./createTail";
 import type WebSocket from "ws";
 
@@ -106,12 +107,18 @@ export const tailCommand = createCommand({
 			describe:
 				"If a log would have been filtered out, send it through anyway alongside the filter which would have blocked it.",
 		},
+		"experimental-wobs-tail": {
+			type: "boolean",
+			hidden: true,
+			default: false,
+			describe: "Use the experimental Workers Observability live-tail service.",
+		},
 	},
 	behaviour: {
 		supportTemporary: true,
 		printBanner: false,
 	},
-	async handler(args, { config }) {
+	async handler(args, { config, sdk }) {
 		args.format ??= process.stdout.isTTY ? "pretty" : "json";
 		if (args.format === "pretty") {
 			await printWranglerBanner();
@@ -167,6 +174,26 @@ export const tailCommand = createCommand({
 			clientIp: args.ip,
 			versionId: args.versionId,
 		};
+
+		if (args.experimentalWobsTail) {
+			const format = args.format === "pretty" ? "pretty" : "json";
+
+			try {
+				await runWobsTail({
+					accountId,
+					scriptName,
+					filters: cliFilters,
+					format,
+					debug: args.debug,
+					telemetry: sdk.workers.observability.telemetry,
+				});
+			} finally {
+				metrics.sendMetricsEvent("end log stream", {
+					sendMetrics: config.send_metrics,
+				});
+			}
+			return;
+		}
 
 		const filters = translateCLICommandToFilterMessage(cliFilters);
 
